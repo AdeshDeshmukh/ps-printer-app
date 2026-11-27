@@ -64,13 +64,12 @@ jobs:
           done
 
           printf '\nCUPS server directories\n'
-          ls -ld /usr/lib/ps-printer-app /usr/lib/cups || :
+          backend_dir=${BACKEND_DIR:-/usr/lib/ps-printer-app/backend}
+          ls -ld /usr/lib/ps-printer-app /usr/lib/cups "$backend_dir" || :
           for path in /usr/lib/ps-printer-app/filter/pdftops \
             /usr/lib/ps-printer-app/filter/foomatic-rip /usr/lib/ps-printer-app/filter/hpps \
-            /usr/lib/ps-printer-app/backend/snmp /usr/lib/ps-printer-app/backend/dnssd \
-            /usr/lib/ps-printer-app/backend/socket /usr/lib/ps-printer-app/backend/ipp \
-            /usr/lib/ps-printer-app/backend/ipps /usr/lib/ps-printer-app/backend/lpd \
-            /usr/lib/ps-printer-app/backend/usb; do
+            "$backend_dir/snmp" "$backend_dir/dnssd" "$backend_dir/socket" \
+            "$backend_dir/ipp" "$backend_dir/ipps" "$backend_dir/lpd" "$backend_dir/usb"; do
             if [ -x "$path" ]; then
               printf 'Executable: %s\n' "$path"
               ls -l "$path"
@@ -80,6 +79,31 @@ jobs:
             fi
           done
           INVENTORY
+
+      - name: Verify CUPS Backends as the App User
+        run: |
+          if ! docker run --rm -i --entrypoint /bin/sh ps-printer-app:test -es \
+            > inventory/backend-verification.txt 2>&1 <<'VERIFY'
+          test "$(id -u)" -eq 1001
+          test "$(id -gn)" = lp
+          : "${BACKEND_DIR:?PAPPL Retrofit backend directory is unset}"
+          test "$(readlink "$BACKEND_DIR/ipps")" = ipp
+          for backend in ipp ipps lpd usb snmp socket; do
+            path="$BACKEND_DIR/$backend"
+            printf 'Checking %s\n' "$path"
+            test -x "$path"
+            libraries=$(ldd "$path" 2>&1) || { printf '%s\n' "$libraries"; exit 1; }
+            printf '%s\n' "$libraries"
+            if printf '%s\n' "$libraries" | grep -F 'not found'; then
+              exit 1
+            fi
+          done
+          VERIFY
+          then
+            cat inventory/backend-verification.txt
+            exit 1
+          fi
+          printf 'CUPS backend checks passed for UID 1001, group lp\n'
 
       - name: Smoke Test OCI Container
         run: |

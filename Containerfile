@@ -78,6 +78,7 @@ RUN make -j$(nproc) && make install DESTDIR=/build/rootfs
 FROM quay.io/fedora/fedora-minimal:41
 
 RUN microdnf install -y \
+    cups \
     cups-libs \
     libusb1 \
     libpng \
@@ -107,6 +108,14 @@ RUN ldconfig
 RUN useradd -r -u 1001 -g lp -d /var/run/ps-printer-app -s /sbin/nologin printer-app \
     && mkdir -p /var/run/ps-printer-app /var/spool/ps-printer-app /var/lib/ps-printer-app \
     && chown -R 1001:lp /var/run/ps-printer-app /var/spool/ps-printer-app /var/lib/ps-printer-app
+
+# Fedora reserves some CUPS backends for root. Grant the printer app's group
+# access to its own copies while preserving the packaged executables.
+ENV BACKEND_DIR=/usr/libexec/ps-printer-app/backend
+RUN install -d -m 0755 "$BACKEND_DIR" \
+    && cp -a /usr/lib/cups/backend/. "$BACKEND_DIR/" \
+    && chgrp lp "$BACKEND_DIR/ipp" "$BACKEND_DIR/lpd" "$BACKEND_DIR/usb" \
+    && chmod g+x "$BACKEND_DIR/ipp" "$BACKEND_DIR/lpd" "$BACKEND_DIR/usb"
 
 USER 1001:lp
 WORKDIR /var/run/ps-printer-app
