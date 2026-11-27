@@ -81,6 +81,7 @@ jobs:
           INVENTORY
 
       - name: Verify CUPS Backends as the App User
+        id: backend-access
         run: |
           if ! docker run --rm -i --entrypoint /bin/sh ps-printer-app:test -es \
             > inventory/backend-verification.txt 2>&1 <<'VERIFY'
@@ -135,6 +136,17 @@ jobs:
             printf 'Expected HTTP 200 from GET /\n' >&2
             exit 1
           fi
+
+      - name: Submit a PostScript Job through LPD
+        if: always() && steps.backend-access.outcome == 'success'
+        timeout-minutes: 2
+        run: |
+          set -o pipefail
+          docker run -d --name ps-lpd-test ps-printer-app:test \
+            -o log-level=debug -o log-file=- server
+          trap 'docker logs ps-lpd-test > inventory/lpd-pappl.log 2>&1 || true; docker rm -f ps-lpd-test >/dev/null 2>&1 || true' EXIT
+          docker exec -i ps-lpd-test python3 - < .github/scripts/smoke-lpd.py \
+            2>&1 | tee inventory/lpd-print-test.txt
 
       - name: Upload PostScript Driver Inventory
         if: always()
