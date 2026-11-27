@@ -1,0 +1,7 @@
+--- a/pappl/system.c
++++ b/pappl/system.c
+@@ -702,3 +702,3 @@
+     }
+-    else if (system->listeners[0].events)
++    else if (system->num_clients >= system->max_clients && system->listeners[0].events)
+     {

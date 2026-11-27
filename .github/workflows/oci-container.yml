@@ -117,23 +117,24 @@ jobs:
           trap 'docker rm -f ps-test >/dev/null 2>&1 || true' EXIT
           sleep 5
 
-          get_result=0
-          get_status=$(curl --silent --show-error --max-time 15 \
-            --noproxy "$host" --resolve "$address" \
-            --dump-header inventory/http-get.headers --output inventory/http-get.body \
-            --write-out '%{http_code}' "$url") || get_result=$?
-          printf 'GET / returned HTTP %s\n' "$get_status"
+          failed=0
+          for request in 1 2; do
+            probe="inventory/http-get-$request"
+            curl_result=0
+            status=$(curl --silent --show-error --verbose --trace-time \
+              --max-time 15 --noproxy "$host" --resolve "$address" \
+              --dump-header "$probe.headers" --output "$probe.body" \
+              --write-out '%{http_code}' "$url" 2> "$probe.trace") || curl_result=$?
+            printf 'GET %s via published port: HTTP %s, curl exit %s\n' \
+              "$request" "$status" "$curl_result"
+            if [ "$curl_result" -ne 0 ] || [ "$status" != 200 ]; then
+              failed=1
+            fi
+          done
 
-          head_result=0
-          curl --head --fail --silent --show-error --max-time 15 \
-            --noproxy "$host" --resolve "$address" \
-            --dump-header inventory/http-head.headers --output /dev/null \
-            --write-out 'HEAD / returned HTTP %{http_code}\n' "$url" || head_result=$?
-
-          printf 'curl exit status: HEAD=%s GET=%s\n' "$head_result" "$get_result"
           docker logs ps-test > inventory/pappl.log 2>&1
-          if [ "$get_result" -ne 0 ] || [ "$get_status" != 200 ]; then
-            printf 'Expected HTTP 200 from GET /\n' >&2
+          if [ "$failed" -ne 0 ]; then
+            printf 'Expected HTTP 200 from both GET requests\n' >&2
             exit 1
           fi
 

@@ -38,8 +38,11 @@ RUN git clone --depth 1 --recurse-submodules https://github.com/OpenPrinting/lib
     && make -j$(nproc) \
     && make install
 
-RUN git clone --depth 1 -b v1.4.x https://github.com/michaelrsweet/pappl.git \
+COPY .github/patches/pappl-listener-limit.patch /build/pappl-listener-limit.patch
+RUN git clone --depth 1 -b v1.4.13 https://github.com/michaelrsweet/pappl.git \
     && cd pappl \
+    && test "$(git rev-parse HEAD)" = 33e5c2fd340d4b65631e60df235ae744551df8d5 \
+    && git apply /build/pappl-listener-limit.patch \
     && ./configure --prefix=/usr --libdir=/usr/lib64 --enable-libusb --with-dnssd=avahi \
     && make -j$(nproc) \
     && make install
