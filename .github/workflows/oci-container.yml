@@ -83,26 +83,34 @@ jobs:
 
       - name: Smoke Test OCI Container
         run: |
+          host=ps-smoke
+          address="$host:8000:127.0.0.1"
+          url="http://$host:8000/"
           docker run -d --name ps-test -p 8000:8000 ps-printer-app:test \
-            -o server-port=8000 -o log-level=debug -o log-file=- server
+            -o "server-hostname=$host" -o server-port=8000 \
+            -o log-level=debug -o log-file=- server
           trap 'docker rm -f ps-test >/dev/null 2>&1 || true' EXIT
           sleep 5
 
+          get_result=0
+          get_status=$(curl --silent --show-error --max-time 15 \
+            --noproxy "$host" --resolve "$address" \
+            --dump-header inventory/http-get.headers --output inventory/http-get.body \
+            --write-out '%{http_code}' "$url") || get_result=$?
+          printf 'GET / returned HTTP %s\n' "$get_status"
+
           head_result=0
           curl --head --fail --silent --show-error --max-time 15 \
+            --noproxy "$host" --resolve "$address" \
             --dump-header inventory/http-head.headers --output /dev/null \
-            --write-out 'HEAD / returned HTTP %{http_code}\n' \
-            http://localhost:8000/ || head_result=$?
-
-          get_result=0
-          curl --fail-with-body --silent --show-error --max-time 15 \
-            --dump-header inventory/http-get.headers --output inventory/http-get.body \
-            --write-out 'GET / returned HTTP %{http_code}\n' \
-            http://localhost:8000/ || get_result=$?
+            --write-out 'HEAD / returned HTTP %{http_code}\n' "$url" || head_result=$?
 
           printf 'curl exit status: HEAD=%s GET=%s\n' "$head_result" "$get_result"
           docker logs ps-test > inventory/pappl.log 2>&1
-          exit "$head_result"
+          if [ "$get_result" -ne 0 ] || [ "$get_status" != 200 ]; then
+            printf 'Expected HTTP 200 from GET /\n' >&2
+            exit 1
+          fi
 
       - name: Upload PostScript Driver Inventory
         if: always()
