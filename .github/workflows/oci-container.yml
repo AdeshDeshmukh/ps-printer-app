@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/cloud-native-oci
+      - test/postscript-driver-inventory
       - master
   pull_request:
     branches:
@@ -31,6 +32,61 @@ jobs:
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Record PostScript Driver Inventory
+        run: |
+          mkdir -p inventory
+          docker image inspect ps-printer-app:test \
+            --format '{{.Id}} {{.Os}}/{{.Architecture}} {{.Config.User}}' > inventory/image.txt
+          git rev-parse HEAD >> inventory/image.txt
+
+          if docker run --rm ps-printer-app:test drivers \
+            > inventory/drivers.txt 2> inventory/drivers-stderr.txt; then
+            printf 'drivers exit status: 0\n' > inventory/driver-status.txt
+          else
+            printf 'drivers exit status: %s\n' "$?" > inventory/driver-status.txt
+          fi
+
+          docker run --rm -i --entrypoint /bin/sh ps-printer-app:test -s \
+            > inventory/files-and-packages.txt 2>&1 <<'INVENTORY'
+          id
+          rpm -qa | sort
+
+          for dir in /usr/share/ppd /usr/share/cups/model /usr/lib/cups/driver \
+            /usr/share/cups/drv /var/lib/ps-printer-app/ppd; do
+            printf '\nPPD search directory %s\n' "$dir"
+            if [ -d "$dir" ]; then
+              ls -ld "$dir"
+              find -L "$dir" -type f | sort
+            else
+              printf 'Directory unavailable\n'
+            fi
+          done
+
+          printf '\nCUPS server directories\n'
+          ls -ld /usr/lib/ps-printer-app /usr/lib/cups || :
+          for path in /usr/lib/ps-printer-app/filter/pdftops \
+            /usr/lib/ps-printer-app/filter/foomatic-rip /usr/lib/ps-printer-app/filter/hpps \
+            /usr/lib/ps-printer-app/backend/snmp /usr/lib/ps-printer-app/backend/dnssd \
+            /usr/lib/ps-printer-app/backend/socket /usr/lib/ps-printer-app/backend/ipp \
+            /usr/lib/ps-printer-app/backend/ipps /usr/lib/ps-printer-app/backend/lpd \
+            /usr/lib/ps-printer-app/backend/usb; do
+            if [ -x "$path" ]; then
+              printf 'Executable: %s\n' "$path"
+              ls -l "$path"
+              ldd "$path" 2>&1 || :
+            else
+              printf 'Missing or not executable: %s\n' "$path"
+            fi
+          done
+          INVENTORY
+
+      - name: Upload PostScript Driver Inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postscript-driver-inventory
+          path: inventory/
 
       - name: Smoke Test OCI Container
         run: |
