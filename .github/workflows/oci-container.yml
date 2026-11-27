@@ -81,17 +81,32 @@ jobs:
           done
           INVENTORY
 
+      - name: Smoke Test OCI Container
+        run: |
+          docker run -d --name ps-test -p 8000:8000 ps-printer-app:test \
+            -o server-port=8000 -o log-level=debug -o log-file=- server
+          trap 'docker rm -f ps-test >/dev/null 2>&1 || true' EXIT
+          sleep 5
+
+          head_result=0
+          curl --head --fail --silent --show-error --max-time 15 \
+            --dump-header inventory/http-head.headers --output /dev/null \
+            --write-out 'HEAD / returned HTTP %{http_code}\n' \
+            http://localhost:8000/ || head_result=$?
+
+          get_result=0
+          curl --fail-with-body --silent --show-error --max-time 15 \
+            --dump-header inventory/http-get.headers --output inventory/http-get.body \
+            --write-out 'GET / returned HTTP %{http_code}\n' \
+            http://localhost:8000/ || get_result=$?
+
+          printf 'curl exit status: HEAD=%s GET=%s\n' "$head_result" "$get_result"
+          docker logs ps-test > inventory/pappl.log 2>&1
+          exit "$head_result"
+
       - name: Upload PostScript Driver Inventory
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: postscript-driver-inventory
           path: inventory/
-
-      - name: Smoke Test OCI Container
-        run: |
-          docker run -d --name ps-test -p 8000:8000 ps-printer-app:test
-          sleep 5
-          docker logs ps-test
-          curl -f -s -I http://localhost:8000/ || exit 1
-          docker stop ps-test
